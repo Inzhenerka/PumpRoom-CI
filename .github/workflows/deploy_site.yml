@@ -1,0 +1,96 @@
+name: 🌐 Deploy site to web
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: Environment name
+      url:
+        required: true
+        type: string
+        description: Deployed site URL
+      site_folder:
+        required: true
+        type: string
+        description: Path of local folder with code to upload
+      s3_bucket:
+        required: true
+        type: string
+        description: S3 bucket name
+      cdn_resource_id:
+        required: true
+        type: string
+        description: ID of Yandex CDN resource
+    secrets:
+      yc_sa_json_credentials:
+        required: true
+      access_key_id:
+        required: true
+      secret_access_key:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    env:
+      aws_region: eu-west-1
+      aws_iam_role: arn:aws:iam::975050069036:role/github-web-deploy
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: ⚙️ Setup Bun
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: ⚙️ Install AWS CLI
+        uses: unfor19/install-aws-cli-action@1.0.8
+        with:
+          version: 2
+          verbose: false
+          arch: amd64
+
+      - name: 🛠️ Build app
+        run: |
+          bun install
+          bun run check
+          bun run build
+
+      - name: 🔼 Upload site
+        run: |
+          AWS_ACCESS_KEY_ID=${{ secrets.access_key_id }} \
+          AWS_SECRET_ACCESS_KEY=${{ secrets.secret_access_key }} \
+          aws s3 sync "${{ inputs.site_folder }}/" "s3://${{ inputs.s3_bucket }}/" \
+            --endpoint-url https://storage.yandexcloud.net \
+            --delete --only-show-errors --no-progress
+        shell: bash
+
+      - name: 🔃 Purge CDN cache
+        env:
+          YC_SA_JSON_CREDENTIALS: ${{ secrets.yc_sa_json_credentials }}
+          CDN_RESOURCE_ID: ${{ inputs.cdn_resource_id }}
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$HOME/yandex-cloud" -n
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+          printf '%s' "$YC_SA_JSON_CREDENTIALS" > /tmp/sa-key.json
+          yc config profile create deploy
+          yc config set service-account-key /tmp/sa-key.json
+          yc cdn cache purge --resource-id "$CDN_RESOURCE_ID" --path "/*"
+          rm -f /tmp/sa-key.json
+        shell: bash
+
+      - name: 🏁 Create GitHub deployment
+        uses: chrnorm/deployment-action@v2
+        with:
+          token: ${{ github.token }}
+          initial-status: success
+          environment-url: ${{ inputs.url }}
+          environment: ${{ inputs.environment }}
