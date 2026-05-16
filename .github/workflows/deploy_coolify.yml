@@ -55,7 +55,7 @@ permissions:
 
 jobs:
   deploy:
-    name: 🚀 Build, publish and deploy
+    name: 🚀 Build and deploy
     runs-on: ${{ inputs.runs_on }}
 
     steps:
