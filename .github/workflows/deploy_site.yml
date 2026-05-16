@@ -40,9 +40,6 @@ jobs:
   deploy:
     name: Deploy to ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    env:
-      aws_region: eu-west-1
-      aws_iam_role: arn:aws:iam::975050069036:role/github-web-deploy
 
     steps:
       - name: ⬇️ Checkout
