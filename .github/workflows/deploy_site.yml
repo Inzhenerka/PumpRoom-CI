@@ -73,18 +73,22 @@ jobs:
             --delete --only-show-errors --no-progress
         shell: bash
 
+      - name: 🔑 Get Yandex Cloud IAM token
+        id: yc-iam
+        uses: yc-actions/yc-iam-token@v1.2.0
+        with:
+          yc-sa-json-credentials: ${{ secrets.yc_sa_json_credentials }}
+
       - name: 🔃 Purge CDN cache
         env:
-          YC_SA_JSON_CREDENTIALS: ${{ secrets.yc_sa_json_credentials }}
+          IAM_TOKEN: ${{ steps.yc-iam.outputs.token }}
           CDN_RESOURCE_ID: ${{ inputs.cdn_resource_id }}
         run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$HOME/yandex-cloud" -n
-          export PATH="$HOME/yandex-cloud/bin:$PATH"
-          printf '%s' "$YC_SA_JSON_CREDENTIALS" > /tmp/sa-key.json
-          yc config profile create deploy
-          yc config set service-account-key /tmp/sa-key.json
-          yc cdn cache purge --resource-id "$CDN_RESOURCE_ID" --path "/*"
-          rm -f /tmp/sa-key.json
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $IAM_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"paths":["/*"]}' \
+            "https://cdn.api.cloud.yandex.net/cdn/v1/cache/$CDN_RESOURCE_ID:purge"
         shell: bash
 
       - name: 🏁 Create GitHub deployment
