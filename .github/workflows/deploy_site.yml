@@ -57,7 +57,7 @@ jobs:
 
       - name: 🛠️ Build app
         run: |
-          bun install
+          bun install --frozen-lockfile
           bun run check
           bun run build
 
