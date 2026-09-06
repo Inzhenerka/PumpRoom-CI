@@ -1,0 +1,136 @@
+name: 🌐 Deploy site to Timeweb Cloud
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: GitHub deployment environment name
+      url:
+        required: true
+        type: string
+        description: Public site URL used by the GitHub deployment
+      site_folder:
+        required: true
+        type: string
+        description: Path to the built site folder
+      s3_bucket:
+        required: true
+        type: string
+        description: Timeweb Cloud S3 bucket name
+      cdn_resource_id:
+        required: true
+        type: string
+        description: Timeweb Cloud CDN resource ID
+      smoke_test_url:
+        required: false
+        type: string
+        default: ''
+        description: URL to verify after deploy; defaults to url
+      smoke_test_path:
+        required: false
+        type: string
+        default: /
+        description: Path appended to the smoke-test URL
+      s3_endpoint:
+        required: false
+        type: string
+        default: https://s3.twcstorage.ru
+        description: Timeweb Cloud S3-compatible endpoint
+      s3_region:
+        required: false
+        type: string
+        default: ru-1
+        description: Timeweb Cloud S3 region
+    secrets:
+      access_key_id:
+        description: S3 access key with write access to this bucket
+        required: true
+      secret_access_key:
+        description: S3 secret key
+        required: true
+      timeweb_cloud_token:
+        description: Timeweb Cloud API token used to purge CDN
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: ⚙️ Setup Bun
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: ⚙️ Install AWS CLI
+        uses: unfor19/install-aws-cli-action@1.0.8
+        with:
+          version: 2
+          verbose: false
+          arch: amd64
+
+      - name: 🛠️ Build app
+        run: |
+          bun install --frozen-lockfile
+          bun run check
+          bun run build
+
+      - name: 🔼 Upload site
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.secret_access_key }}
+          AWS_DEFAULT_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ inputs.s3_region }}
+        run: |
+          aws s3 sync "${{ inputs.site_folder }}/" "s3://${{ inputs.s3_bucket }}/" \
+            --endpoint-url "${{ inputs.s3_endpoint }}" \
+            --delete --only-show-errors --no-progress
+        shell: bash
+
+      - name: 🔃 Purge CDN cache
+        env:
+          TIMEWEB_CLOUD_TOKEN: ${{ secrets.timeweb_cloud_token }}
+          CDN_RESOURCE_ID: ${{ inputs.cdn_resource_id }}
+        run: |
+          curl --fail --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --request POST \
+            --header "Authorization: Bearer $TIMEWEB_CLOUD_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"purge_type":"full"}' \
+            "https://api.timeweb.cloud/api/v1/cdn/http-resources/$CDN_RESOURCE_ID/clear-cache"
+        shell: bash
+
+      - name: 🩺 Verify deployment
+        env:
+          PUBLIC_URL: ${{ inputs.url }}
+          SMOKE_TEST_URL: ${{ inputs.smoke_test_url }}
+          SMOKE_TEST_PATH: ${{ inputs.smoke_test_path }}
+        run: |
+          base_url="${SMOKE_TEST_URL:-$PUBLIC_URL}"
+          target="${base_url%/}/${SMOKE_TEST_PATH#/}"
+          curl --fail --silent --show-error \
+            --location \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            --max-time 20 \
+            --output /dev/null \
+            "$target"
+          echo "Deployment is available at $target"
+        shell: bash
+
+      - name: 🏁 Create GitHub deployment
+        uses: chrnorm/deployment-action@v2.0.8
+        with:
+          token: ${{ github.token }}
+          initial-status: success
+          environment-url: ${{ inputs.url }}
+          environment: ${{ inputs.environment }}
+

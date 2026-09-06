@@ -33,6 +33,44 @@ jobs:
 | `yc_sa_json_credentials` | Yandex Cloud service-account JSON key (CDN purge) |
 | `access_key_id` / `secret_access_key` | Static keys for the S3-compatible bucket |
 
+### `deploy_timeweb_site.yml` — Static site → Timeweb Cloud
+
+Builds a Bun project, synchronizes the output to Timeweb Cloud S3, fully purges
+the CDN resource, waits for the deployed URL to respond successfully, and then
+creates a successful GitHub deployment.
+
+```yaml
+jobs:
+  deploy:
+    uses: Inzhenerka/PumpRoom-CI/.github/workflows/deploy_timeweb_site.yml@main
+    with:
+      environment: production
+      url: https://example.com
+      site_folder: ./build
+      s3_bucket: example-site
+      cdn_resource_id: '123456'
+      # During migration, verify the technical CDN domain before DNS cutover:
+      # smoke_test_url: https://example.cdn.twcstorage.ru
+      # smoke_test_path: /index.html
+    secrets:
+      access_key_id:       ${{ secrets.TIMEWEB_S3_ACCESS_KEY_ID }}
+      secret_access_key:   ${{ secrets.TIMEWEB_S3_SECRET_ACCESS_KEY }}
+      timeweb_cloud_token: ${{ secrets.TIMEWEB_CLOUD_TOKEN }}
+```
+
+**Required secrets**
+
+| Secret | Purpose |
+|---|---|
+| `access_key_id` / `secret_access_key` | Timeweb S3 user restricted to the site's bucket |
+| `timeweb_cloud_token` | Timeweb Cloud API token used only for CDN cache purge |
+
+For the first upload, pass the technical CDN domain as `smoke_test_url` and
+`/index.html` as `smoke_test_path`. After DNS and TLS are ready, remove those
+overrides so the workflow verifies the public site root. The Timeweb infra
+workflow exports the required bucket name, CDN resource ID, and technical
+domain in `timeweb-cdn.outputs.json`.
+
 ### `deploy_coolify.yml` — Docker image → Coolify
 
 Builds and pushes a multi-arch Docker image to a registry (defaults to GHCR), then triggers a Coolify deploy webhook.
