@@ -1,0 +1,18 @@
+name: Upload static site to Yandex S3
+description: Publish index last, retain old assets and verify uploaded objects
+inputs:
+  bucket:
+    required: true
+    description: Target bucket
+  site_folder:
+    required: true
+    description: Build output directory
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        S3_BUCKET: ${{ inputs.bucket }}
+        SITE_FOLDER: ${{ inputs.site_folder }}
+      run: python "$ACTION_PATH/../../../scripts/deploy_s3_site.py" --bucket "$S3_BUCKET" --dist "$SITE_FOLDER"

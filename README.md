@@ -6,6 +6,43 @@ Call these from any consumer repo with `workflow_call` — no copy-pasting CI lo
 
 ## Workflows
 
+### `deploy_yandex_s3_site.yml` — Static site → Yandex S3, without CDN
+
+Builds a Bun site, uploads resources before `index.html`, retains old assets for
+open tabs, then verifies every uploaded object's bytes and cache metadata.
+The composite action at `.github/actions/deploy-yandex-s3` uses
+`scripts/deploy_s3_site.py`; publish them together with the workflow.
+
+Hashed Vite assets use `public,max-age=31536000,immutable`; all other files use
+`no-cache`. There is no CDN purge or automatic deletion. Deployments to the same
+bucket are serialized within the calling repository and never cancelled mid-upload.
+
+```yaml
+permissions:
+  contents: read
+  deployments: write
+jobs:
+  deploy:
+    uses: Inzhenerka/PumpRoom-CI/.github/workflows/deploy_yandex_s3_site.yml@main
+    with:
+      environment: prod
+      url: https://admin.pumproom.tech/
+      site_folder: ./dist
+      s3_bucket: admin.pumproom.tech
+      spa_path: /tasks
+      verify_https: true
+    secrets:
+      access_key_id: ${{ secrets.YANDEX_S3_ACCESS_KEY_ID }}
+      secret_access_key: ${{ secrets.YANDEX_S3_SECRET_ACCESS_KEY }}
+```
+
+HTTPS verification contacts the bucket's website endpoint directly using the
+custom domain for SNI and Host, so it works before public DNS cutover. Root and
+index must return this build with 200; SPA fallback may return 404 with identical
+HTML. Set `verify_https: false` only for an initial upload before certificate
+attachment; S3 read-back verification still runs, but no successful website
+deployment is recorded. No Yandex IAM JSON key or CDN token is needed.
+
 ### `deploy_site.yml` — Static site → Yandex Cloud
 
 Builds a Bun project, syncs the output to a Yandex Object Storage bucket, and purges the Yandex CDN cache via the Cloud API.

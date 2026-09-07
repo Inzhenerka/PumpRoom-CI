@@ -1,0 +1,90 @@
+name: Deploy site to Yandex S3 (without CDN)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      url:
+        required: true
+        type: string
+      site_folder:
+        required: true
+        type: string
+      s3_bucket:
+        required: true
+        type: string
+      verify_https:
+        description: Verify custom-domain TLS against S3 even before DNS cutover
+        type: boolean
+        default: true
+      spa_path:
+        type: string
+        default: /tasks
+    secrets:
+      access_key_id:
+        required: true
+      secret_access_key:
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: yandex-s3-${{ github.repository }}-${{ inputs.s3_bucket }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: oven-sh/setup-bun@v2.2.0
+      - name: Build site
+        run: |
+          bun install --frozen-lockfile
+          bun run check
+          bun run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install S3 client
+        run: python -m pip install 'boto3>=1.35,<2'
+      - name: Upload and verify S3 objects
+        uses: Inzhenerka/PumpRoom-CI/.github/actions/deploy-yandex-s3@main
+        with:
+          bucket: ${{ inputs.s3_bucket }}
+          site_folder: ${{ inputs.site_folder }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.secret_access_key }}
+      - name: Verify website and TLS before DNS cutover
+        if: ${{ inputs.verify_https }}
+        env:
+          S3_BUCKET: ${{ inputs.s3_bucket }}
+          SITE_FOLDER: ${{ inputs.site_folder }}
+          SPA_PATH: ${{ inputs.spa_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$S3_BUCKET.website.yandexcloud.net"
+          for path in / /index.html "$SPA_PATH"; do
+            code=$(curl --silent --show-error --max-time 30 --retry 3 \
+              --connect-to "$S3_BUCKET:443:$target:443" \
+              --output "$RUNNER_TEMP/site-response" --write-out '%{http_code}' \
+              "https://$S3_BUCKET$path")
+            if [[ "$code" != 200 && !( "$path" == "$SPA_PATH" && "$code" == 404 ) ]]; then
+              echo "Unexpected HTTP $code at $path"; exit 1
+            fi
+            cmp "$SITE_FOLDER/index.html" "$RUNNER_TEMP/site-response"
+          done
+      - name: Record successful website deployment
+        if: ${{ inputs.verify_https }}
+        uses: chrnorm/deployment-action@v2.0.8
+        with:
+          token: ${{ github.token }}
+          initial-status: success
+          environment-url: ${{ inputs.url }}
+          environment: ${{ inputs.environment }}
