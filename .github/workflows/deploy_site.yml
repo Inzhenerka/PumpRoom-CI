@@ -23,6 +23,16 @@ on:
         required: true
         type: string
         description: ID of Yandex CDN resource
+      pre_build_script:
+        required: false
+        type: string
+        default: ""
+        description: Optional repository-relative shell script to run before the build
+      pre_build_env_json:
+        required: false
+        type: string
+        default: "{}"
+        description: Optional JSON object with public environment variables for the pre-build script
     secrets:
       yc_sa_json_credentials:
         required: true
@@ -54,6 +64,37 @@ jobs:
           version: 2
           verbose: false
           arch: amd64
+
+      - name: 🧩 Run pre-build script
+        if: inputs.pre_build_script != ''
+        env:
+          PRE_BUILD_ENV_JSON: ${{ inputs.pre_build_env_json }}
+          PRE_BUILD_SCRIPT: ${{ inputs.pre_build_script }}
+        run: |
+          bun -e '
+            const { spawnSync } = require("node:child_process");
+            const script = process.env.PRE_BUILD_SCRIPT;
+            if (!script.startsWith("./")) throw new Error("pre_build_script must start with ./");
+            const values = JSON.parse(process.env.PRE_BUILD_ENV_JSON || "{}");
+            if (!values || Array.isArray(values) || typeof values !== "object") {
+              throw new Error("pre_build_env_json must be a JSON object");
+            }
+            for (const [name, value] of Object.entries(values)) {
+              if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+                throw new Error(`Invalid pre-build environment variable name: ${name}`);
+              }
+              if (typeof value !== "string" || /[\r\n]/.test(value)) {
+                throw new Error(`Pre-build environment variable ${name} must be a single-line string`);
+              }
+            }
+            const result = spawnSync("sh", [script], {
+              env: { ...process.env, ...values },
+              stdio: "inherit",
+            });
+            if (result.error) throw result.error;
+            process.exit(result.status ?? 1);
+          '
+        shell: bash
 
       - name: 🛠️ Build app
         run: |

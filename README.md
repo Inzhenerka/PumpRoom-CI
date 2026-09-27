@@ -57,6 +57,9 @@ jobs:
       site_folder: dist
       s3_bucket: my-bucket
       cdn_resource_id: bc8xxxxxxxxxxxxxxxxx
+      # Optional application-owned preparation before `bun run build`:
+      pre_build_script: ./scripts/generate-public-config.sh
+      pre_build_env_json: '{"PUBLIC_API_URL":"https://api.example.com"}'
     secrets:
       yc_sa_json_credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
       access_key_id:          ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -69,6 +72,12 @@ jobs:
 |---|---|
 | `yc_sa_json_credentials` | Yandex Cloud service-account JSON key (CDN purge) |
 | `access_key_id` / `secret_access_key` | Static keys for the S3-compatible bucket |
+
+`pre_build_script` is an optional repository-relative shell script executed immediately
+before the standard build. `pre_build_env_json` supplies single-line, public environment
+variables to that script. Projects that omit these inputs keep the original deployment
+path unchanged. Do not put secrets in `pre_build_env_json` because workflow inputs are not
+a secret transport.
 
 ### `deploy_timeweb_site.yml` — Static site → Timeweb Cloud
 
