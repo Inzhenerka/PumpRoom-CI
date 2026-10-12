@@ -120,6 +120,8 @@ domain in `timeweb-cdn.outputs.json`.
 ### `deploy_coolify.yml` — Docker image → Coolify
 
 Builds and pushes a multi-arch Docker image to a registry (defaults to GHCR), then triggers a Coolify deploy webhook.
+The webhook uses `POST`, as required by current Coolify versions; keep the target
+parameters (`uuid` or `tag`) in the webhook URL and pass the API bearer token.
 
 ```yaml
 jobs:

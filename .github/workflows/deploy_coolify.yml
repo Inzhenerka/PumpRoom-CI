@@ -110,7 +110,7 @@ jobs:
       - name: 🚀 Deploy to Coolify
         run: |
           status=$(curl -s -o response.txt -w '%{http_code}' \
-            --request GET "${{ secrets.coolify_webhook }}" \
+            --request POST "${{ secrets.coolify_webhook }}" \
             --header "Authorization: Bearer ${{ secrets.coolify_token }}")
           echo "Response status: $status"
           cat response.txt || true
