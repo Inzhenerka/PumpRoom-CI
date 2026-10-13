@@ -138,7 +138,51 @@ jobs:
       build_args:      ${{ secrets.BUILD_ARGS }}  # optional, KEY=VALUE per line
 ```
 
-Image is tagged with the branch name, short SHA, and `latest` on the default branch. Build cache uses GitHub Actions cache (`type=gha`).
+Image is tagged with the branch name, short SHA, and `latest` on the default
+branch or a `v*` tag. By default, `cache_from` and `cache_to` are `auto`: the
+workflow imports from `type=registry,ref=<resolved-image>:buildcache` and exports
+to the same reference with `mode=max`. The reference follows `registry` and
+`image_name`, so callers do not need to repeat their image address.
+
+Registry cache is shared across release tags and retains intermediate build
+stages. The first build populates it; later builds reuse compatible layers.
+The `buildcache` tag is a BuildKit cache artifact, not a runnable image: exclude
+it from registry cleanup rules for old release tags. Concurrent builds writing
+the same cache reference can replace each other's cache manifest; use separate
+references for independent build variants.
+
+Override `cache_from` and `cache_to` for specific images. For a single-stage
+image already published to GHCR, inline cache reuses published image layers
+without exporting a separate cache:
+
+```yaml
+    with:
+      cache_from: type=registry,ref=ghcr.io/inzhenerka/pumproom-judge:latest
+      cache_to: type=inline
+      free_disk_space: true
+```
+
+Inline cache is used by Judge, Auth and Observe. Multi-stage application images
+use the registry default to preserve dependency/build stages. Pass an empty
+string for both cache inputs to disable external cache import and export.
+To opt back into GHA cache, set `cache_from: type=gha` and
+`cache_to: type=gha,mode=max` explicitly.
+
+Python images install dependencies before copying source code, using
+`uv sync --frozen --no-dev --no-install-project`, then sync the project after
+`COPY src`. Cache mounts keep uv downloads out of exported image/cache layers.
+Mount contents are not persisted between GitHub-hosted runners by this workflow;
+reuse between runs relies on the exported BuildKit layer cache.
+
+Publish this reusable workflow before callers that use the new cache inputs.
+Verify a first and a subsequent release build: look for `CACHED` on dependency
+steps and compare cache import/export time. No speedup is guaranteed before
+those measurements.
+
+`free_disk_space` defaults to `false`. When enabled on a GitHub-hosted Linux
+runner, it removes preinstalled .NET, GHC, Android and hosted toolcache directories
+and prunes unused Docker data before Buildx starts. Enable it only for Docker
+builds that do not need those host SDKs; self-hosted runners are never cleaned.
 
 **Required secrets**
 

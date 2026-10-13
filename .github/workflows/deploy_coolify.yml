@@ -27,6 +27,18 @@ on:
         description: Runner to use
         type: string
         default: ubuntu-latest
+      cache_from:
+        description: BuildKit cache sources (auto uses image:buildcache; empty disables import)
+        type: string
+        default: auto
+      cache_to:
+        description: BuildKit cache destinations (auto uses registry mode=max; empty disables export)
+        type: string
+        default: auto
+      free_disk_space:
+        description: Remove unused preinstalled SDKs on a GitHub-hosted Ubuntu runner
+        type: boolean
+        default: false
       environment:
         description: GitHub deployment environment name
         type: string
@@ -61,6 +73,14 @@ jobs:
     steps:
       - name: ⬇️ Checkout
         uses: actions/checkout@v6.0.2
+
+      - name: 🧹 Free disk space
+        if: ${{ inputs.free_disk_space && runner.environment == 'github-hosted' && runner.os == 'Linux' }}
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+          docker system prune -af
+          df -h /
 
       - name: 🏷️ Prepare image name
         id: image
@@ -104,8 +124,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ secrets.build_args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: ${{ inputs.cache_from == 'auto' && format('type=registry,ref={0}:buildcache', steps.image.outputs.name) || inputs.cache_from }}
+          cache-to: ${{ inputs.cache_to == 'auto' && format('type=registry,ref={0}:buildcache,mode=max', steps.image.outputs.name) || inputs.cache_to }}
 
       - name: 🚀 Deploy to Coolify
         run: |
